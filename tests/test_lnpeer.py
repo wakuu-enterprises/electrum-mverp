@@ -26,7 +26,7 @@ from electrum import bitcoin
 from electrum import util
 from electrum import constants
 from electrum import bip32
-from electrum.network import Network
+from electrum.network import Network, ProxySettings
 from electrum import simple_config, lnutil
 from electrum.lnaddr import lnencode, LnAddr, lndecode
 from electrum.bitcoin import COIN, sha256
@@ -71,6 +71,7 @@ class MockNetwork:
         self.path_finder = LNPathFinder(self.channel_db)
         self.lngossip = MockLNGossip()
         self.tx_queue = asyncio.Queue()
+        self.proxy = ProxySettings()
         self._blockchain = MockBlockchain()
 
     def get_local_height(self):
@@ -634,7 +635,7 @@ class TestPeerDirect(TestPeer):
             self.assertEqual(alice_channel.peer_state, PeerState.GOOD)
             self.assertEqual(bob_channel.peer_state, PeerState.GOOD)
             gath.cancel()
-        gath = asyncio.gather(reestablish(), p1._message_loop(), p2._message_loop(), p1.htlc_switch(), p1.htlc_switch())
+        gath = asyncio.gather(reestablish(), p1._message_loop(), p2._message_loop(), p1.htlc_switch(), p2.htlc_switch())
         with self.assertRaises(asyncio.CancelledError):
             await gath
 

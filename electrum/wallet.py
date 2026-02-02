@@ -562,11 +562,12 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         self.unregister_callbacks()
         try:
             async with ignore_after(5):
+                if self.lnworker:
+                    await self.lnworker.stop()
+                    self.lnworker = None
                 if self.network:
-                    if self.lnworker:
-                        await self.lnworker.stop()
-                        self.lnworker = None
                     self.network = None
+                if self.taskgroup:
                     await self.taskgroup.cancel_remaining()
                     self.taskgroup = None
                 await self.adb.stop()
@@ -2058,11 +2059,14 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 fee_estimator_vb=fee_estimator,
                 dust_threshold=self.dust_threshold(),
                 BIP69_sort=BIP69_sort)
-            if self.lnworker and send_change_to_lightning:
+            if send_change_to_lightning and self.lnworker and self.lnworker.swap_manager.is_initialized.is_set():
+                sm = self.lnworker.swap_manager
                 change = tx.get_change_outputs()
                 if len(change) == 1:
                     amount = change[0].value
-                    if amount <= self.lnworker.num_sats_can_receive():
+                    min_swap_amount = sm.get_min_amount()
+                    max_swap_amount = sm.client_max_amount_forward_swap() or 0
+                    if min_swap_amount <= amount <= max_swap_amount:
                         tx.replace_output_address(change[0].address, DummyAddress.SWAP)
             if self.should_keep_reserve_utxo(tx.inputs(), tx.outputs(), is_anchor_channel_opening):
                 raise NotEnoughFunds()
@@ -3780,7 +3784,10 @@ class Imported_Wallet(Simple_Wallet):
         return self.db.has_imported_address(address)
 
     def get_address_index(self, address) -> Optional[str]:
-        # returns None if address is not mine
+        # Return pubkey for address if we know it.
+        # If we don't know it, return None, which might happen:
+        # - if address is not is_mine
+        # - if this is an "imported address", we don't have the pubkey for. (watch-only imported wallet)
         return self.get_public_key(address)
 
     def get_address_path_str(self, address):
